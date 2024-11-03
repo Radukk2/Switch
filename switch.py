@@ -12,10 +12,14 @@ my_mac_table = {}
 my_configs = {}
 interfaces_state = {}
 is_root = True
+root_port = None
+my_bridge_id = None
+root_bridge_id = None
+root_path_cost = 0
 
 def parse_ethernet_header(data):
     # Unpack the header fields from the byte array
-    #dest_mac, src_mac, ethertype = struct.unpack('!6s6sH', data[:14])
+    # dest_mac, src_mac, ethertype = struct.unpack('!6s6sH', data[:14])
     dest_mac = data[0:6]
     src_mac = data[6:12]
     
@@ -40,15 +44,15 @@ def create_bdpu(bridge_id, root_bridge_id, src_mac, path_cost):
     bpdu_packet = struct.pack("!6s6sIII", b"\x01\x80\xC2\x00\x00\x00", src_mac, bridge_id, path_cost, root_bridge_id)
     return bpdu_packet
 
-def send_bdpu_every_sec(interfaces, my_bridge_id, root_bridge_id, switch_priority, src_mac):
+def send_bdpu_every_sec(interfaces, switch_priority, src_mac):
+    global root_bridge_id
+    global my_bridge_id
     while True:
-        # print(f"[DEBUG] Current root: {is_root} on switch {my_bridge_id}")
         if is_root:
             for i in interfaces :
                 if my_configs[get_interface_name(i)] == 'T':
-                    bdpu_pack = create_bdpu(switch_priority, my_bridge_id, src_mac, 0)
+                    bdpu_pack = create_bdpu(switch_priority, my_bridge_id, src_mac, root_bridge_id)
                     send_to_link(i, len(bdpu_pack), bdpu_pack)
-                    # print(f"[DEBUG] Sent BPDU from root {my_bridge_id} on interface {i}")
         time.sleep(1)
 
 def is_unicast_address(mac):
@@ -68,14 +72,12 @@ def read_configs(file_path):
     return priority
     
 def fwd(dest_iface, length, data, vlan_id, switch_id, src_iface):
-    # print(my_configs)
     name = get_interface_name(dest_iface)
-    # print(vlan_id)
     if name in my_configs and my_configs[name] ==  'T':
         if my_configs[get_interface_name(src_iface)] != 'T':
             data = data[0:12] + create_vlan_tag(vlan_id) + data[12:]
             length += 4
-        if  interfaces_state[get_interface_name(dest_iface)] != 'blocking':
+        if  interfaces_state[get_interface_name(dest_iface)] == 'listening':
             send_to_link(dest_iface, length, data) 
     else:
         # print(vlan_id)
@@ -85,56 +87,80 @@ def fwd(dest_iface, length, data, vlan_id, switch_id, src_iface):
             if my_configs[get_interface_name(src_iface)] == 'T':
                 data = data[0:12] + data[16:]
                 length -= 4
-            if interfaces_state[get_interface_name(dest_iface)] != 'blocking':
+            if interfaces_state[get_interface_name(dest_iface)] == 'listening':
                 send_to_link(dest_iface, length, data)
 
-def on_bdpu_receive(root_bridge_id, root_path_cost, iface, interfaces, my_bridge_id, data):
+def on_bdpu_receive(iface, interfaces,  data):
 
     global is_root
     global interfaces_state
+    global root_port
+    global my_bridge_id
+    global root_bridge_id
+    global root_path_cost
     format = "!6s6sIII"
-    dest_mac, src_mac, bridge_id, path_cost, recv_root_bridge_id = struct.unpack(format, data)
-    root_port = None
 
-    print(f"[DEBUG] Received BPDU on iface {iface} - Root ID: {recv_root_bridge_id}, Path Cost: {path_cost}")
+    bdpu_dest_mac, bdpu_src_mac, bdpu_bridge_id, bdpu_sender_path_cost, bdpu_root_bridge_id = struct.unpack(format, data)
+
+    print(f"[DEBUG] Received BPDU on iface {iface} - Root ID: {bdpu_root_bridge_id}, Path Cost: {bdpu_sender_path_cost}")
+    
 
     #step 1
-    if recv_root_bridge_id < root_bridge_id :
-        root_path_cost = path_cost + 10
+    if bdpu_root_bridge_id < root_bridge_id :
+        root_bridge_id = bdpu_root_bridge_id
+        root_path_cost = bdpu_sender_path_cost + 10
         root_port = iface
 
     #step2
         if is_root:
             for i in interfaces:
-                if my_configs[get_interface_name(i)] == 'T' and i != iface :
+                if my_configs[get_interface_name(i)] == 'T' and i != root_port :
+                    print("here")
+                    print("here")
+                    print("here")
                     interfaces_state[get_interface_name(i)] = 'blocking'
             is_root = False
-        
     #step3    
         if interfaces_state[get_interface_name(root_port)] == 'blocking' :
             interfaces_state[get_interface_name(root_port)] = 'listening'
+            # print("aaaaaa")
+            # print("aaaaaa")
+    
+    #step4
         for i in interfaces :
             if my_configs[get_interface_name(i)] == 'T' :
                 sender_bridge_ID = my_bridge_id
                 sender_path_cost = root_path_cost
-                send_new = create_bdpu(sender_bridge_ID, recv_root_bridge_id, get_switch_mac(), sender_path_cost)
+                send_new = create_bdpu(sender_bridge_ID, bdpu_root_bridge_id, get_switch_mac(), sender_path_cost)
                 send_to_link(i, len(send_new), send_new)
-    elif recv_root_bridge_id == root_bridge_id :
-        if root_port == iface and path_cost + 10 < root_path_cost :
-            root_path_cost = path_cost + 10
+
+    #step5            
+    elif bdpu_root_bridge_id == root_bridge_id :
+        if root_port == iface and bdpu_sender_path_cost + 10 < root_path_cost :
+            root_path_cost = bdpu_sender_path_cost + 10
+    
+    #step6
         elif root_port != iface :
-            if path_cost > root_path_cost :
+            if bdpu_sender_path_cost > root_path_cost :
                 if interfaces_state[get_interface_name(iface)] != 'listening':
                     interfaces_state[get_interface_name(iface)] = 'listening'
-    elif bridge_id == my_bridge_id :
+
+    #step7                
+    elif bdpu_bridge_id == my_bridge_id :
         interfaces_state[get_interface_name(iface)] = 'blocking'
+
+    #step8    
     if my_bridge_id == root_bridge_id :
         for i in interfaces :
             interfaces_state[get_interface_name(i)] = 'listening'
+    print(f"[DEBUG]", interfaces_state)
 
         
 
 def main():
+    global my_bridge_id
+    global root_bridge_id
+    global root_path_cost
     # init returns the max interface number. Our interfaces
     # are 0, 1, 2, ..., init_ret value + 1
     switch_id = sys.argv[1]
@@ -142,10 +168,6 @@ def main():
     # print(my_configs)
     num_interfaces = wrapper.init(sys.argv[2:])
     interfaces = range(0, num_interfaces)
-    
-
-
-
     print("# Starting switch with id {}".format(switch_id), flush=True)
     print("[INFO] Switch MAC", ':'.join(f'{b:02x}' for b in get_switch_mac()))
 
@@ -163,12 +185,13 @@ def main():
     root_bridge_id = my_bridge_id
     root_path_cost = 0
 
-    pack = create_bdpu(my_bridge_id, root_bridge_id, get_switch_mac(), root_path_cost)
-    if my_bridge_id == root_bridge_id:
-        for i in interfaces:
-            send_to_link(i, len(pack), pack)
+    # pack = create_bdpu(my_bridge_id, root_bridge_id, get_switch_mac(), root_path_cost)
+    # if my_bridge_id == root_bridge_id:
+    #     for i in interfaces:
+    #         send_to_link(i, len(pack), pack)
+    print(f"[DEBUG]", interfaces_state)
     
-    t = threading.Thread(target=send_bdpu_every_sec, args=(interfaces, my_bridge_id, root_bridge_id, switch_priority, get_switch_mac()))
+    t = threading.Thread(target=send_bdpu_every_sec, args=(interfaces, switch_priority, get_switch_mac()))
     t.start()
 
     while True:
@@ -200,7 +223,7 @@ def main():
         my_mac_table[src_mac] = interface
         # print(my_configs)
         if dest_mac == "01:80:c2:00:00:00" :
-            on_bdpu_receive(root_bridge_id, root_path_cost, interface, interfaces, my_bridge_id, data)
+            on_bdpu_receive(interface, interfaces,  data)
             continue
         if dest_mac in my_mac_table :
             fwd(my_mac_table[dest_mac], length, data , vlan_id, switch_id, interface)
@@ -208,7 +231,6 @@ def main():
             for i in interfaces:
                 if i != interface:
                     fwd(i, length, data, vlan_id, switch_id, interface)
-        
         # TODO: Implement STP support
 
         # data is of type bytes.
