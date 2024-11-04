@@ -79,7 +79,7 @@ def fwd(dest_iface, length, data, vlan_id, switch_id, src_iface):
             length += 4
         if  interfaces_state[get_interface_name(dest_iface)] == 'listening':
             send_to_link(dest_iface, length, data) 
-    else:
+    elif name in my_configs:
         # print(vlan_id)
         # print("vlan")
         # print(my_configs[name])
@@ -102,7 +102,7 @@ def on_bdpu_receive(iface, interfaces,  data):
 
     bdpu_dest_mac, bdpu_src_mac, bdpu_bridge_id, bdpu_sender_path_cost, bdpu_root_bridge_id = struct.unpack(format, data)
 
-    print(f"[DEBUG] Received BPDU on iface {iface} - Root ID: {bdpu_root_bridge_id}, Path Cost: {bdpu_sender_path_cost}")
+    # print(f"[DEBUG] Received BPDU on iface {iface} - Root ID: {bdpu_root_bridge_id}, Path Cost: {bdpu_sender_path_cost}")
     
 
     #step 1
@@ -115,9 +115,9 @@ def on_bdpu_receive(iface, interfaces,  data):
         if is_root:
             for i in interfaces:
                 if my_configs[get_interface_name(i)] == 'T' and i != root_port :
-                    print("here")
-                    print("here")
-                    print("here")
+                    # print("here")
+                    # print("here")
+                    # print("here")
                     interfaces_state[get_interface_name(i)] = 'blocking'
             is_root = False
     #step3    
@@ -153,7 +153,7 @@ def on_bdpu_receive(iface, interfaces,  data):
     if my_bridge_id == root_bridge_id :
         for i in interfaces :
             interfaces_state[get_interface_name(i)] = 'listening'
-    print(f"[DEBUG]", interfaces_state)
+    # print(f"[DEBUG]", interfaces_state)
 
         
 
@@ -212,11 +212,11 @@ def main():
         # Note. Adding a VLAN tag can be as easy as
         # tagged_frame = data[0:12] + create_vlan_tag(10) + data[12:]
 
-        print(f'Destination MAC: {dest_mac}')
-        print(f'Source MAC: {src_mac}')
-        print(f'EtherType: {ethertype}')
+        # print(f'Destination MAC: {dest_mac}')
+        # print(f'Source MAC: {src_mac}')
+        # print(f'EtherType: {ethertype}')
 
-        print("Received frame of size {} on interface {}".format(length, interface), flush=True)
+        # print("Received frame of size {} on interface {}".format(length, interface), flush=True)
 
         # TODO: Implement forwarding with learning
         # TODO: Implement VLAN support
@@ -226,6 +226,7 @@ def main():
             on_bdpu_receive(interface, interfaces,  data)
             continue
         if dest_mac in my_mac_table :
+            # print(vlan)
             fwd(my_mac_table[dest_mac], length, data , vlan_id, switch_id, interface)
         else:
             for i in interfaces:
