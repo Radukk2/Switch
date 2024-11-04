@@ -40,18 +40,18 @@ def create_vlan_tag(vlan_id):
     # vlan_id & 0x0FFF ensures that only the last 12 bits are used
     return struct.pack('!H', 0x8200) + struct.pack('!H', vlan_id & 0x0FFF)
 
-def create_bdpu(bridge_id, root_bridge_id, src_mac, path_cost):
-    bpdu_packet = struct.pack("!6s6sIII", b"\x01\x80\xC2\x00\x00\x00", src_mac, bridge_id, path_cost, root_bridge_id)
+def create_bdpu(bridge_id, root_bridge_id, path_cost):
+    bpdu_packet = struct.pack("!6sIII", b"\x01\x80\xC2\x00\x00\x00", bridge_id, path_cost, root_bridge_id)
     return bpdu_packet
 
-def send_bdpu_every_sec(interfaces, switch_priority, src_mac):
+def send_bdpu_every_sec(interfaces, switch_priority):
     global root_bridge_id
     global my_bridge_id
     while True:
         if is_root:
             for i in interfaces :
                 if my_configs[get_interface_name(i)] == 'T':
-                    bdpu_pack = create_bdpu(switch_priority, my_bridge_id, src_mac, root_bridge_id)
+                    bdpu_pack = create_bdpu(switch_priority, my_bridge_id, root_bridge_id)
                     send_to_link(i, len(bdpu_pack), bdpu_pack)
         time.sleep(1)
 
@@ -98,9 +98,9 @@ def on_bdpu_receive(iface, interfaces,  data):
     global my_bridge_id
     global root_bridge_id
     global root_path_cost
-    format = "!6s6sIII"
+    format = "!6sIII"
 
-    bdpu_dest_mac, bdpu_src_mac, bdpu_bridge_id, bdpu_sender_path_cost, bdpu_root_bridge_id = struct.unpack(format, data)
+    bdpu_dest_mac, bdpu_bridge_id, bdpu_sender_path_cost, bdpu_root_bridge_id = struct.unpack(format, data)
 
     # print(f"[DEBUG] Received BPDU on iface {iface} - Root ID: {bdpu_root_bridge_id}, Path Cost: {bdpu_sender_path_cost}")
     
@@ -131,7 +131,7 @@ def on_bdpu_receive(iface, interfaces,  data):
             if my_configs[get_interface_name(i)] == 'T' :
                 sender_bridge_ID = my_bridge_id
                 sender_path_cost = root_path_cost
-                send_new = create_bdpu(sender_bridge_ID, bdpu_root_bridge_id, get_switch_mac(), sender_path_cost)
+                send_new = create_bdpu(sender_bridge_ID, bdpu_root_bridge_id,  sender_path_cost)
                 send_to_link(i, len(send_new), send_new)
 
     #step5            
@@ -191,7 +191,7 @@ def main():
     #         send_to_link(i, len(pack), pack)
     print(f"[DEBUG]", interfaces_state)
     
-    t = threading.Thread(target=send_bdpu_every_sec, args=(interfaces, switch_priority, get_switch_mac()))
+    t = threading.Thread(target=send_bdpu_every_sec, args=(interfaces, switch_priority))
     t.start()
 
     while True:
