@@ -46,17 +46,19 @@ def create_bdpu(bridge_id, root_bridge_id, path_cost):
 
 def send_bdpu_every_sec(interfaces, switch_priority):
     global root_bridge_id
+    global root_path_cost
     global my_bridge_id
     while True:
         if is_root:
             for i in interfaces :
                 if my_configs[get_interface_name(i)] == 'T':
-                    bdpu_pack = create_bdpu(switch_priority, my_bridge_id, root_bridge_id)
+                    bdpu_pack = create_bdpu(my_bridge_id, root_bridge_id, switch_priority)
+                    print(f"sent to interface {i}")
                     send_to_link(i, len(bdpu_pack), bdpu_pack)
         time.sleep(1)
 
-def is_unicast_address(mac):
-    return (mac[0] % 2 == 0)
+# def is_unicast_address(mac):
+#     return (mac[0] % 2 == 0)
 
 
 def read_configs(file_path):
@@ -190,6 +192,8 @@ def main():
     #     for i in interfaces:
     #         send_to_link(i, len(pack), pack)
     print(f"[DEBUG]", interfaces_state)
+    print(root_path_cost)
+    print(root_bridge_id)
     
     t = threading.Thread(target=send_bdpu_every_sec, args=(interfaces, switch_priority))
     t.start()
